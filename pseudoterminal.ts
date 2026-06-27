@@ -73,11 +73,19 @@ export class StreamProxyPseudoterminal implements vscode.Pseudoterminal {
     const shellPath = this.resolveShell();
 
     // Spawn the real shell via node-pty so we get a proper PTY fd
-    this.shell = pty.spawn(shellPath, [], {
+    this.shell = pty.spawn(shellPath.exe, shellPath.args, {
       name: 'xterm-256color',
       cols: this.cols,
       rows: this.rows,
-      cwd: process.env.HOME ?? process.cwd(),
+      // Prefer the open workspace folder so `node test-stream.js` just works.
+      // Falling back through USERPROFILE covers Windows (HOME is often unset
+      // there), then os.homedir() as a cross-platform last resort. We
+      // deliberately avoid process.cwd() — inside the extension host that
+      // resolves to the VS Code install directory, not the user's project.
+      cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+        ?? process.env.HOME
+        ?? process.env.USERPROFILE
+        ?? os.homedir(),
       env: process.env as { [key: string]: string },
     });
 
@@ -135,17 +143,47 @@ export class StreamProxyPseudoterminal implements vscode.Pseudoterminal {
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
-  private resolveShell(): string {
-    if (os.platform() === 'win32') {
-      return process.env.ComSpec ?? 'cmd.exe';
+  private resolveShell(): { exe: string; args: string[] } {
+    if (os.platform() !== 'win32') {
+      // SHELL is always a real path on Unix/macOS — no need to poke VS Code config.
+      return { exe: process.env.SHELL ?? '/bin/bash', args: [] };
     }
-    return (
-      process.env.SHELL ??
-      vscode.workspace
-        .getConfiguration('terminal.integrated')
-        .get<string>('defaultProfile.linux') ??
-      '/bin/bash'
-    );
+
+    // Windows: prefer something modern over cmd.exe.
+    //
+    // Priority:
+    //  1. PowerShell 7+ (pwsh.exe) — ships with Win10/11, good ANSI support
+    //  2. Git Bash (bash.exe inside a standard Git for Windows install)
+    //  3. Windows PowerShell 5 (powershell.exe) — always present on Win10+
+    //  4. cmd.exe — last resort, but at least it works
+    //
+    // We spawn with -NoLogo / --login so the prompt comes up clean without
+    // the copyright banner eating the first line.
+    const fs = require('fs') as typeof import('fs');
+
+    const pwsh = 'C:\\Program Files\\PowerShell\\7\\pwsh.exe';
+    if (fs.existsSync(pwsh)) {
+      return { exe: pwsh, args: ['-NoLogo'] };
+    }
+
+    // Git for Windows drops bash.exe here by default. Check the two most
+    // common install paths — per-machine and per-user.
+    const gitBashPaths = [
+      'C:\\Program Files\\Git\\bin\\bash.exe',
+      `${process.env.LOCALAPPDATA ?? ''}\\Programs\\Git\\bin\\bash.exe`,
+    ];
+    for (const p of gitBashPaths) {
+      if (fs.existsSync(p)) {
+        // --login gives us the full Unix PATH from .bash_profile/.profile
+        return { exe: p, args: ['--login', '-i'] };
+      }
+    }
+
+    // Windows PowerShell 5 — always present on Win10+, no external install needed.
+    return {
+      exe: `${process.env.SystemRoot ?? 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`,
+      args: ['-NoLogo'],
+    };
   }
 
   private buildPreview(payload: unknown): string {
