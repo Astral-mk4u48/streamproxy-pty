@@ -1,0 +1,7 @@
+.github/**
+webview/node_modules/**
+webview/src/**
+.gitignore
+.vscodeignore
+tsconfig.json
+*.ts
