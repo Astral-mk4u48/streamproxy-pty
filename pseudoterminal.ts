@@ -51,6 +51,14 @@ export class StreamProxyPseudoterminal implements vscode.Pseudoterminal {
   // out immediately rather than continuing to feed a dead or interrupted shell.
   private pasteAborted = false;
 
+  // Timestamp (ms) until which shell.onData output should bypass the parser
+  // and go straight to onText. Set on every handleInput write; expires after
+  // ECHO_WINDOW_MS. This is how we stop echoed keystrokes from being mistaken
+  // for JSON — a `{` the user typed echoes back through onData and would
+  // otherwise open a capture that freezes the terminal until a matching `}`.
+  private echoWindowUntil = 0;
+  private static readonly ECHO_WINDOW_MS = 50;
+
   /**
    * Stable per-instance identifier.
    *
@@ -116,9 +124,18 @@ export class StreamProxyPseudoterminal implements vscode.Pseudoterminal {
       },
     });
 
-    // Pipe shell stdout → parser
+    // Pipe shell stdout → parser (or passthrough if we're in the echo window).
+    // Every handleInput write bumps echoWindowUntil forward by ECHO_WINDOW_MS.
+    // Bytes that arrive while the clock is still running are echoed keystrokes —
+    // hand them straight to onText via passthrough() so the bracket counter
+    // never sees them. Bytes that arrive after the window expires are real
+    // program output and go through the full parser as normal.
     this.shell.onData((data: string) => {
-      this.parser?.push(data);
+      if (Date.now() < this.echoWindowUntil) {
+        this.parser?.passthrough(data);
+      } else {
+        this.parser?.push(data);
+      }
     });
 
     // Shell exited — close the terminal tab
@@ -148,6 +165,8 @@ export class StreamProxyPseudoterminal implements vscode.Pseudoterminal {
       // Cancel any in-flight paste drain so the control character takes effect
       // immediately. The next paste will start fresh with a clean flag.
       this.pasteAborted = true;
+      // No echo window for control characters — Ctrl+C doesn't echo visible
+      // bytes so there's nothing for the parser to misread.
       this.shell.write(data);
       return;
     }
@@ -155,7 +174,10 @@ export class StreamProxyPseudoterminal implements vscode.Pseudoterminal {
     const CHUNK = 512;
     if (data.length <= CHUNK) {
       // Fast path — normal keystrokes never hit the chunk limit.
+      // Bump the echo window so the shell's echo of these bytes goes through
+      // passthrough() rather than the JSON parser.
       this.pasteAborted = false;
+      this.echoWindowUntil = Date.now() + StreamProxyPseudoterminal.ECHO_WINDOW_MS;
       this.shell.write(data);
       return;
     }
@@ -163,11 +185,16 @@ export class StreamProxyPseudoterminal implements vscode.Pseudoterminal {
     // Slow path — paste. Reset the abort flag for this new run, write the
     // first chunk immediately so there's no perceptible delay, then schedule
     // the rest one tick at a time so node-pty's buffer can drain between writes.
+    // The echo window is extended per-chunk inside writeNext so it stays open
+    // for the full duration of the paste, not just the first 50ms.
     this.pasteAborted = false;
     let offset = 0;
     const writeNext = (): void => {
       // Bail if the tab was closed or the user hit Ctrl+C mid-paste.
       if (!this.shell || this.pasteAborted || offset >= data.length) { return; }
+      // Keep the echo window open for the duration of the paste — each chunk
+      // resets the clock so the parser stays in passthrough the whole time.
+      this.echoWindowUntil = Date.now() + StreamProxyPseudoterminal.ECHO_WINDOW_MS;
       this.shell.write(data.slice(offset, offset + CHUNK));
       offset += CHUNK;
       if (offset < data.length) {

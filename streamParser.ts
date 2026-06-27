@@ -96,6 +96,33 @@ export class StreamParser {
     }
   }
 
+  // Bypass the parser entirely and emit straight to onText. Used for echoed
+  // keystrokes — bytes the shell bounces back verbatim after the user types.
+  // Because echoed output and real program output share the same onData stream
+  // there's no structural way to tell them apart; we rely on the caller
+  // (pseudoterminal.ts) to gate which path each chunk takes based on a short
+  // echo-suppression window that opens on every handleInput write.
+  //
+  // Importantly, passthrough also resets any partial JSON capture that was
+  // open. A stray `{` typed interactively must never contaminate the parser
+  // state for the next real JSON blob that a program emits.
+  passthrough(chunk: string): void {
+    if (this.destroyed) { return; }
+
+    // Discard any half-open JSON capture — it was started by an echoed opener
+    // and will never get a matching closer from the same echo window.
+    if (this.depth > 0) {
+      this.callbacks.onText(this.jsonBuffer);
+      this.jsonBuffer = '';
+      this.depth      = 0;
+      this.openChar   = '';
+      this.inString   = false;
+      this.escape     = false;
+    }
+
+    this.callbacks.onText(chunk);
+  }
+
   // try/finally so draining always resets — if processChunk() ever throws,
   // we don't get stuck with draining=true and silently swallow every future push().
   private async drainQueue(): Promise<void> {
