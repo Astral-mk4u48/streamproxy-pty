@@ -169,8 +169,10 @@ function renderList(): void {
   listEl.innerHTML = '';
 
   const isEmpty = visibleEntries.length === 0;
+  // Always set both — the HTML has display:none on #empty as a starting
+  // point but we take full ownership of visibility from here on.
   emptyEl.style.display = isEmpty ? 'flex' : 'none';
-  listEl.style.display  = isEmpty ? 'none' : 'block';
+  listEl.style.display  = isEmpty ? 'none'  : 'block';
 
   updateCount();
 
@@ -294,6 +296,11 @@ clearBtn.addEventListener('click', () => {
 });
 
 // ── Boot ───────────────────────────────────────────────────────────────────
+
+// Show the empty state immediately on boot so the panel isn't just a blank
+// white box while waiting for 'init' to arrive from the extension host.
+emptyEl.style.display = 'flex';
+listEl.style.display  = 'none';
 
 // Tell the extension the webview is alive and ready to receive 'init'.
 // The extension buffers all payloads that arrived before the panel existed

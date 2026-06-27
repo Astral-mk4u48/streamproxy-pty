@@ -43,6 +43,13 @@ export class JsonPanelManager
   // in resolveWebviewView() once the webview is actually alive.
   private pendingScrollId: string | undefined;
 
+  // True only after the webview has posted 'ready'. There's a window between
+  // resolveWebviewView() setting this.view and the webview JS actually running
+  // where postMessage calls would be silently dropped. We hold off sending
+  // 'add' messages until ready fires — at which point 'init' catches up
+  // everything that queued up in this.entries anyway.
+  private webviewReady = false;
+
   constructor(private readonly context: vscode.ExtensionContext) {
     this.maxEntries = vscode.workspace
       .getConfiguration('streamproxy-pty')
@@ -73,6 +80,8 @@ export class JsonPanelManager
       (msg: WebviewToExt) => {
         if (msg.type === 'ready') {
           // Webview just booted (or reloaded) — send the full buffer.
+          // Mark ready first so any post() calls inside init dispatch correctly.
+          this.webviewReady = true;
           this.post({ type: 'init', entries: this.entries });
 
           if (this.pendingScrollId !== undefined) {
@@ -92,6 +101,9 @@ export class JsonPanelManager
     // the user reopens the view.
     webviewView.onDidDispose(() => {
       this.view = undefined;
+      // Webview context is gone — reset so the next resolveWebviewView()
+      // waits for a fresh 'ready' before sending messages.
+      this.webviewReady = false;
     }, undefined, this.disposables);
   }
 
@@ -103,11 +115,14 @@ export class JsonPanelManager
       this.entries.shift();
     }
 
-    if (this.view) {
+    if (this.webviewReady) {
+      // Webview is fully booted — stream the entry straight in.
       this.post({ type: 'add', entry });
     } else {
-      // View hasn't been resolved yet — reveal it so VS Code calls
-      // resolveWebviewView(), which will send the full init on 'ready'.
+      // Either the view doesn't exist yet or it exists but the JS hasn't
+      // posted 'ready' — both cases are fine. The entry is already in
+      // this.entries, so the next 'init' will include it automatically.
+      // Just make sure the panel is visible so the user can see it arrive.
       this.reveal();
     }
   }
