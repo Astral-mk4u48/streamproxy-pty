@@ -1,0 +1,233 @@
+/* ── Token map ─────────────────────────────────────────────────────────────
+   We pull from VS Code's built-in CSS variables where they exist so the panel
+   automatically respects the user's chosen theme (light, dark, high-contrast).
+   The --sp-* custom props are our own layer on top.                          */
+
+:root {
+  /* Surfaces */
+  --sp-bg:           var(--vscode-sideBar-background, #1e1e1e);
+  --sp-bg-entry:     var(--vscode-list-inactiveSelectionBackground, #2a2d2e);
+  --sp-bg-entry-hover: var(--vscode-list-hoverBackground, #2c2c2c);
+  --sp-bg-selected:  var(--vscode-list-activeSelectionBackground, #094771);
+  --sp-border:       var(--vscode-panel-border, #3c3c3c);
+
+  /* Text */
+  --sp-fg:           var(--vscode-foreground, #cccccc);
+  --sp-fg-muted:     var(--vscode-descriptionForeground, #8a8a8a);
+  --sp-fg-selected:  var(--vscode-list-activeSelectionForeground, #ffffff);
+
+  /* JSON syntax colours — close to VS Code's default JSON theme */
+  --sp-key:          #9cdcfe;
+  --sp-string:       #ce9178;
+  --sp-number:       #b5cea8;
+  --sp-bool:         #569cd6;
+  --sp-null:         #569cd6;
+  --sp-brace:        var(--sp-fg);
+  --sp-dim:          var(--sp-fg-muted);
+  --sp-indent-guide: var(--sp-border);
+
+  /* Terminal badge palette — one colour per terminalId slot */
+  --sp-term-0: #3794ff;
+  --sp-term-1: #f48771;
+  --sp-term-2: #89d185;
+  --sp-term-3: #cca700;
+  --sp-term-4: #c586c0;
+  --sp-term-5: #4ec9b0;
+
+  /* Misc */
+  --sp-radius: 3px;
+  --sp-font-mono: var(--vscode-editor-font-family, 'Cascadia Code', 'Consolas', monospace);
+  --sp-font-ui:   var(--vscode-font-family, system-ui, sans-serif);
+  --sp-font-size: var(--vscode-editor-font-size, 12px);
+}
+
+/* ── Reset ─────────────────────────────────────────────────────────────── */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--sp-bg);
+  color: var(--sp-fg);
+  font-family: var(--sp-font-ui);
+  font-size: var(--sp-font-size);
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Toolbar ───────────────────────────────────────────────────────────── */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--sp-border);
+  flex-shrink: 0;
+}
+
+.search {
+  flex: 1;
+  background: var(--vscode-input-background, #3c3c3c);
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: var(--sp-radius);
+  color: var(--sp-fg);
+  font-family: var(--sp-font-ui);
+  font-size: var(--sp-font-size);
+  padding: 3px 7px;
+  outline: none;
+}
+
+.search:focus {
+  border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+.search::placeholder {
+  color: var(--sp-fg-muted);
+}
+
+.btn {
+  background: none;
+  border: none;
+  border-radius: var(--sp-radius);
+  color: var(--sp-fg-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 3px 5px;
+  transition: color 0.1s, background 0.1s;
+}
+
+.btn:hover {
+  background: var(--sp-bg-entry-hover);
+  color: var(--sp-fg);
+}
+
+.count-badge {
+  font-size: 10px;
+  color: var(--sp-fg-muted);
+  white-space: nowrap;
+  padding-right: 2px;
+}
+
+/* ── Scroll container + virtual list ──────────────────────────────────── */
+
+.scroll-container {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Thin scrollbar on Chromium-based webviews */
+  scrollbar-width: thin;
+  scrollbar-color: var(--sp-border) transparent;
+}
+
+/* Empty state */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 8px;
+  color: var(--sp-fg-muted);
+  font-size: 12px;
+  text-align: center;
+  padding: 24px;
+  user-select: none;
+}
+
+.empty-icon {
+  font-size: 32px;
+  opacity: 0.4;
+}
+
+/* ── Entry card ────────────────────────────────────────────────────────── */
+
+.entry {
+  border-bottom: 1px solid var(--sp-border);
+  padding: 0;
+  cursor: pointer;
+  transition: background 0.08s;
+}
+
+.entry:hover { background: var(--sp-bg-entry-hover); }
+.entry.expanded { background: var(--sp-bg-entry); }
+.entry.highlighted { background: var(--sp-bg-selected); }
+
+.entry-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  user-select: none;
+}
+
+.entry-arrow {
+  font-size: 9px;
+  color: var(--sp-fg-muted);
+  width: 10px;
+  flex-shrink: 0;
+  transition: transform 0.1s;
+}
+
+.entry.expanded .entry-arrow { transform: rotate(90deg); }
+
+/* Coloured dot per terminal */
+.term-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.entry-preview {
+  flex: 1;
+  font-family: var(--sp-font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--sp-fg);
+}
+
+.entry-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.entry-time {
+  font-size: 10px;
+  color: var(--sp-fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.entry-id {
+  font-size: 9px;
+  color: var(--sp-fg-muted);
+  font-family: var(--sp-font-mono);
+  opacity: 0.6;
+}
+
+/* Expanded JSON body */
+.entry-body {
+  padding: 4px 8px 8px 24px;
+  font-family: var(--sp-font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  display: none;
+}
+
+.entry.expanded .entry-body { display: block; }
+
+/* ── JSON tree (from jsonTree.ts) ─────────────────────────────────────── */
+
+.json-tree {
+  font-family: var(--sp-font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

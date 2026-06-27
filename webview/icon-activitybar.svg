@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <!-- Hexagon outline — matches the ⬡ glyph used in the terminal placeholder -->
+  <path
+    d="M12 2 L21 7 L21 17 L12 22 L3 17 L3 7 Z"
+    stroke="currentColor"
+    stroke-width="1.5"
+    stroke-linejoin="round"
+    fill="none"
+  />
+  <!-- Curly brace / JSON hint inside -->
+  <text
+    x="12" y="16"
+    text-anchor="middle"
+    font-family="monospace"
+    font-size="9"
+    fill="currentColor"
+  >{}</text>
+</svg>
