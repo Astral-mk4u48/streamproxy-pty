@@ -46,6 +46,11 @@ export class StreamProxyPseudoterminal implements vscode.Pseudoterminal {
   private cols = 80;
   private rows = 24;
 
+  // Flipped to true whenever a control character arrives mid-paste or the tab
+  // closes. The setImmediate drain loop checks this on every tick and bails
+  // out immediately rather than continuing to feed a dead or interrupted shell.
+  private pasteAborted = false;
+
   /**
    * Stable per-instance identifier.
    *
@@ -122,9 +127,54 @@ export class StreamProxyPseudoterminal implements vscode.Pseudoterminal {
     });
   }
 
-  // VS Code calls this for every keystroke the user types in the terminal UI
+  // VS Code calls this for every keystroke the user types in the terminal UI.
+  // Single keystrokes arrive as a 1-char string and go straight through.
+  // Paste lands here too — as one big string all at once. node-pty's write
+  // buffer on Windows silently drops anything over ~1 KB delivered in a single
+  // call, so we slice large inputs into 512-byte chunks and drain them one
+  // setImmediate tick apart. That matches the pace node-pty can actually
+  // consume without losing data, while keeping latency invisible for normal typing.
   handleInput(data: string): void {
-    this.shell?.write(data);
+    if (!this.shell) { return; }
+
+    // Control characters (Ctrl+C → \x03, Ctrl+D → \x04, Ctrl+Z → \x1a, etc.)
+    // must always jump straight to the shell, even if a paste drain is already
+    // in flight. Letting them queue behind 50+ pending chunks means the user
+    // has to wait for the entire paste to finish before the signal lands —
+    // which is exactly what made Ctrl+C feel broken. We detect them by checking
+    // for any byte below 0x20 (the ASCII control range).
+    const isControl = data.length === 1 && data.charCodeAt(0) < 0x20;
+    if (isControl) {
+      // Cancel any in-flight paste drain so the control character takes effect
+      // immediately. The next paste will start fresh with a clean flag.
+      this.pasteAborted = true;
+      this.shell.write(data);
+      return;
+    }
+
+    const CHUNK = 512;
+    if (data.length <= CHUNK) {
+      // Fast path — normal keystrokes never hit the chunk limit.
+      this.pasteAborted = false;
+      this.shell.write(data);
+      return;
+    }
+
+    // Slow path — paste. Reset the abort flag for this new run, write the
+    // first chunk immediately so there's no perceptible delay, then schedule
+    // the rest one tick at a time so node-pty's buffer can drain between writes.
+    this.pasteAborted = false;
+    let offset = 0;
+    const writeNext = (): void => {
+      // Bail if the tab was closed or the user hit Ctrl+C mid-paste.
+      if (!this.shell || this.pasteAborted || offset >= data.length) { return; }
+      this.shell.write(data.slice(offset, offset + CHUNK));
+      offset += CHUNK;
+      if (offset < data.length) {
+        setImmediate(writeNext);
+      }
+    };
+    writeNext();
   }
 
   // VS Code calls this when the terminal panel is resized
@@ -137,6 +187,9 @@ export class StreamProxyPseudoterminal implements vscode.Pseudoterminal {
 
   // VS Code calls this when the tab is closed
   close(): void {
+    // Kill any in-flight paste drain before taking down the shell — otherwise
+    // the writeNext loop keeps firing setImmediate callbacks into a dead pty.
+    this.pasteAborted = true;
     try { this.shell?.kill(); } catch { /* already dead */ }
     this.parser?.destroy();
   }
