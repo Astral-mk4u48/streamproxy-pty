@@ -1,7 +1,7 @@
 {
   "name": "streamproxy-webview",
   "private": true,
-  "version": "0.1.5",
+  "version": "0.1.6",
   "scripts": {
     "build": "esbuild src/index.ts --bundle --outfile=dist/webview.js --format=iife --platform=browser --minify && node build-css.mjs",
     "watch": "esbuild src/index.ts --bundle --outfile=dist/webview.js --format=iife --platform=browser --watch"

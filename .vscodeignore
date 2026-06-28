@@ -1,7 +1,10 @@
 .github/**
 webview/node_modules/**
 webview/src/**
+webview/build-css.mjs
+webview/tsconfig.json
 .gitignore
 .vscodeignore
 tsconfig.json
 *.ts
+**/*.map

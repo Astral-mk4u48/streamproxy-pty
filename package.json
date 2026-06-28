@@ -2,7 +2,7 @@
   "name": "streamproxy-pty",
   "displayName": "StreamProxy PTY",
   "description": "Intercepts terminal stdout, extracts JSON payloads, and renders them in a virtualized side panel.",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "publisher": "astral-mk4u48",
   "repository": {
     "type": "git",
